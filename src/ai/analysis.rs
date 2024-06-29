@@ -81,6 +81,7 @@ enum Write {
     None,
 }
 
+// shank: the main analysis function
 pub fn analyze(
     tcx: TyCtxt<'_>,
     conf: &AnalysisConfig,

@@ -26,6 +26,7 @@ use rustc_span::{
 };
 use rustfix::{LinePosition, LineRange, Replacement, Snippet, Solution, Suggestion};
 
+// QUERY: shank: wow, how did they come up with the bounds on this function ??
 pub fn run_compiler<R: Send, F: FnOnce(TyCtxt<'_>) -> R + Send>(config: Config, f: F) -> Option<R> {
     rustc_driver::catch_fatal_errors(|| {
         rustc_interface::run_compiler(config, |compiler| {
