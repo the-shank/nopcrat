@@ -88,25 +88,35 @@ pub fn analyze(
 ) -> BTreeMap<DefId, (FunctionSummary, Vec<OutputParam>)> {
     let hir = tcx.hir();
 
+    // shank: the call graph for all the functions in the crate: [fn_def_id -> set(callee_def_id)]
     let mut call_graph = BTreeMap::new();
+    // shank: mapping from [fn_def_id -> inputs_len]
     let mut inputs_map = BTreeMap::new();
+    // QUERY: check if `hir.items()` would contain the nested functions as well?
     for id in hir.items() {
         let item = hir.item(id);
+        // shank: skip main()
         if item.ident.name.to_ident_string() == "main" {
             continue;
         }
+        // shank: only process functions, skip the rest of the items
         let inputs = if let rustc_hir::ItemKind::Fn(sig, _, _) = &item.kind {
             sig.decl.inputs.len()
         } else {
             continue;
         };
+        // shank: get the def_id of the function
         let def_id = item.item_id().owner_id.def_id.to_def_id();
         inputs_map.insert(def_id, inputs);
+        // shank: they create a visitor for each item... thats little wierd..
+        // QUERY: why do they do this?
         let mut visitor = CallVisitor::new(tcx);
         visitor.visit_item(item);
         call_graph.insert(def_id, visitor.callees);
     }
 
+    // shank: this removes the fns in callees that do not have an entry in the call-graph for themselves.
+    // They probably do this to filter out the functions that are not defined in this crate.
     let funcs: BTreeSet<_> = call_graph.keys().cloned().collect();
     for callees in call_graph.values_mut() {
         callees.retain(|callee| funcs.contains(callee));
@@ -118,6 +128,8 @@ pub fn analyze(
         .flatten()
         .collect();
 
+    // shank: resume-here
+    // TODO: what exactly are they collecting in this visitor??
     let mut visitor = FnPtrVisitor::new(tcx);
     tcx.hir().visit_all_item_likes_in_crate(&mut visitor);
 
@@ -1063,6 +1075,7 @@ fn return_location(body: &Body<'_>) -> Option<Location> {
     None
 }
 
+/// shank: rpo -> reverse post-order. but why is this needed??
 fn get_rpo_map(body: &Body<'_>) -> BTreeMap<BasicBlock, usize> {
     body.basic_blocks
         .reverse_postorder()
