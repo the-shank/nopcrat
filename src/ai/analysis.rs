@@ -109,13 +109,15 @@ pub fn analyze(
         let def_id = item.item_id().owner_id.def_id.to_def_id();
         inputs_map.insert(def_id, inputs);
         // shank: they create a visitor for each item... thats little wierd..
-        // QUERY: why do they do this?
+        // (Q) Why do they do this?
+        // (A) This looks like a simple way to collect data for only one item, rather than doing the
+        // stack kind of dance that I did in Aunor. Nice!
         let mut visitor = CallVisitor::new(tcx);
         visitor.visit_item(item);
         call_graph.insert(def_id, visitor.callees);
     }
 
-    // shank: this removes the fns in callees that do not have an entry in the call-graph for themselves.
+    // shank: this removes the fns in callees that do not have an entry in the call-graph.
     // They probably do this to filter out the functions that are not defined in this crate.
     let funcs: BTreeSet<_> = call_graph.keys().cloned().collect();
     for callees in call_graph.values_mut() {
@@ -128,11 +130,12 @@ pub fn analyze(
         .flatten()
         .collect();
 
-    // shank: resume-here
-    // TODO: what exactly are they collecting in this visitor??
+    // shank: collect all fn-calls (specifically, their hids) and all fn_def_id to which these
+    // calls resolve to.
     let mut visitor = FnPtrVisitor::new(tcx);
     tcx.hir().visit_all_item_likes_in_crate(&mut visitor);
 
+    // [fn_def_id -> FuncInfo]
     let info_map: BTreeMap<_, _> = funcs
         .iter()
         .map(|def_id| {
@@ -142,6 +145,7 @@ pub fn analyze(
             let pre_rpo_map = get_rpo_map(body);
             let loop_blocks = get_loop_blocks(body, &pre_rpo_map);
             let rpo_map = compute_rpo_map(body, &loop_blocks);
+            // QUERY: why do they need the dead locals?
             let dead_locals = get_dead_locals(body, tcx);
             let fn_ptr = visitor.fn_ptrs.contains(def_id);
             let info = FuncInfo {
@@ -156,6 +160,7 @@ pub fn analyze(
         })
         .collect();
 
+    // shank: resume-here
     let mut ptr_params_map = BTreeMap::new();
     let mut output_params_map = BTreeMap::new();
     let mut summaries = BTreeMap::new();
@@ -871,6 +876,7 @@ impl<'tcx> HVisitor<'tcx> for CallVisitor<'tcx> {
                 }
             }
         }
+        // shank: this `walk_expr` ensures that all the nested callees are collected as well
         rustc_hir::intravisit::walk_expr(self, expr);
     }
 }
@@ -901,8 +907,16 @@ impl<'tcx> HVisitor<'tcx> for FnPtrVisitor<'tcx> {
     fn visit_expr(&mut self, expr: &'tcx Expr<'tcx>) {
         match expr.kind {
             ExprKind::Call(callee, _) => {
+                // shank: this `callee.hir_id` would be the `hir_id` of the function call, not the
+                // function definition itself?
                 self.callees.insert(callee.hir_id);
             }
+
+            // shank:
+            // - consider only resolved paths
+            // - see if this path pertains to one of those in the _callees_ list (i.e. this is the
+            // path pertaining to a call -- not the resolved function)
+            // - see if the definition that this path resolves to is a _fn-like_
             ExprKind::Path(QPath::Resolved(_, path)) => {
                 if !self.callees.contains(&expr.hir_id) {
                     if let Res::Def(def_kind, def_id) = path.res {
@@ -912,6 +926,7 @@ impl<'tcx> HVisitor<'tcx> for FnPtrVisitor<'tcx> {
                     }
                 }
             }
+
             _ => {}
         }
         rustc_hir::intravisit::walk_expr(self, expr);
