@@ -135,7 +135,7 @@ pub fn analyze(
     let mut visitor = FnPtrVisitor::new(tcx);
     tcx.hir().visit_all_item_likes_in_crate(&mut visitor);
 
-    // [fn_def_id -> FuncInfo]
+    // shank: [fn_def_id -> FuncInfo]
     let info_map: BTreeMap<_, _> = funcs
         .iter()
         .map(|def_id| {
